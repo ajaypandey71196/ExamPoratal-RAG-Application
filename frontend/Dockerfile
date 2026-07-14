@@ -4,7 +4,8 @@ FROM node:18-alpine as builder
 WORKDIR /app
 
 COPY package.json package-lock.json* yarn.lock* ./
-RUN npm ci --prefer-offline --no-audit
+#RUN npm ci --prefer-offline --no-audit
+RUN npm install
 
 COPY . .
 RUN npm run build
