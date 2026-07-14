@@ -1,8 +1,9 @@
-FROM python:3.11-slim
+# Stage 1: Builder
+FROM python:3.11-slim as builder
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies for building
 RUN apt-get update && apt-get install -y \
     gcc \
     postgresql-client \
@@ -11,10 +12,22 @@ RUN apt-get update && apt-get install -y \
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-dev --no-cache-dir -r requirements.txt
+
+# Stage 2: Final image
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy only runtime dependencies from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin/alembic /usr/local/bin/alembic
 
 # Copy application code
 COPY . .
 
+# Ensure alembic can find its config
+ENV PYTHONPATH=/app
+
 # Run migrations and start the server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic -c alembic.ini upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
