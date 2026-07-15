@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from typing import Optional
+from fastapi import HTTPException, status, Header
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
@@ -51,6 +52,37 @@ def decode_token(token: str) -> dict:
         return payload
     except JWTError:
         return None
+
+
+def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
+    """Extract the user ID from the JWT bearer token in the Authorization header.
+
+    `authorization: Optional[str] = Header(None)` is what makes FastAPI read
+    this from the HTTP `Authorization` request header (not a query param).
+    Used as `Depends(get_current_user_id)` across documents.py, exams.py,
+    and users.py.
+    """
+    if not authorization:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    try:
+        scheme, token = authorization.split()
+        if scheme.lower() != "bearer":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid auth scheme")
+
+        payload = decode_token(token)
+        if not payload:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+        return user_id
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
 # Schemas

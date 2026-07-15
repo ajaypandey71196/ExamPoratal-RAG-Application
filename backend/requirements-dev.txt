@@ -1,0 +1,19 @@
+# ============================================================
+# DEV / TEST / LINT dependencies.
+# Install locally or in CI with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+# These are intentionally NOT installed inside the Docker image
+# to keep it small and fast to build.
+# ============================================================
+-r requirements.txt
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Code Quality
+black==23.12.1
+flake8==6.1.0
+isort==5.13.2
+mypy==1.7.1

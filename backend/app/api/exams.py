@@ -17,6 +17,7 @@ from app.utils.security import get_current_user_id
 from app.services.rag_engine import RAGEngine
 from app.services.exam_generator import ExamGenerationService
 from app.services.llm_service import LLMService
+from app.services.qdrant_service import get_qdrant_service
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -122,20 +123,12 @@ async def generate_exam(
             logger.warning(f"No documents available for user {user_id}")
 
         # Initialize RAG Engine
-        rag_engine = RAGEngine(
-            embeddings_service=None,  # Will be initialized inside RAG engine
-            qdrant_service=None  # Will be initialized inside RAG engine
-        )
-
-        # Retrieve context
-        context = rag_engine.retrieve_context(
-            query=request.topic,
-            user_id=user_id,
-            limit=20,
-            source_types=["document"] if request.source_preference == "documents" else None
-        )
-
-        logger.info(f"Retrieved {len(context['chunks'])} context chunks for exam generation")
+        # (RAGEngine only takes a qdrant_service + optional collection_name -
+        # it builds its own embeddings service internally. It previously was
+        # being called with an "embeddings_service" kwarg that doesn't exist
+        # and qdrant_service=None, which raised a TypeError on every call.)
+        qdrant_service = get_qdrant_service(settings.QDRANT_URL, settings.QDRANT_API_KEY)
+        rag_engine = RAGEngine(qdrant_service=qdrant_service)
 
         # Initialize LLM Service
         llm_service = LLMService(
@@ -145,25 +138,46 @@ async def generate_exam(
         )
 
         # Initialize Exam Generator
-        exam_generator = ExamGenerationService(llm_service=llm_service)
+        # (ExamGenerationService requires both rag_engine and llm_service -
+        # it does its own retrieval internally via rag_engine.retrieve_context,
+        # so we don't fetch context separately here.)
+        exam_generator = ExamGenerationService(rag_engine=rag_engine, llm_service=llm_service)
 
-        # Generate exam
-        exam_data = exam_generator.generate_exam(
-            topic=request.topic,
-            context_chunks=context['chunks'],
-            num_questions=request.num_questions,
-            question_type=request.question_type,
-            difficulty_level=request.difficulty_level,
-            custom_instructions=request.custom_instructions,
-            temperature=request.llm_config.temperature,
-            max_tokens=request.llm_config.max_tokens
+        # Map the request's source_preference values ("documents"/"internet"/"both")
+        # to what ExamGenerationService.generate_exam expects internally
+        # ("user_documents"/"internet"/"mixed").
+        source_preference_map = {
+            "documents": "user_documents",
+            "internet": "internet",
+            "both": "mixed"
+        }
+        internal_source_preference = source_preference_map.get(
+            request.source_preference, "user_documents"
         )
 
-        if not exam_data or "questions" not in exam_data:
+        # Generate exam (this call now matches ExamGenerationService.generate_exam's
+        # real signature: topic, user_id, question_type, difficulty_level,
+        # num_questions, source_preference, custom_instructions, document_ids)
+        exam_data = exam_generator.generate_exam(
+            topic=request.topic,
+            user_id=user_id,
+            question_type=request.question_type,
+            difficulty_level=request.difficulty_level,
+            num_questions=request.num_questions,
+            source_preference=internal_source_preference,
+            custom_instructions=request.custom_instructions,
+            document_ids=request.document_ids
+        )
+
+        if not exam_data or exam_data.get("status") != "success" or not exam_data.get("questions"):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to generate exam questions"
+                detail=f"Failed to generate exam questions: {exam_data.get('error', 'no questions returned')}"
             )
+
+        # exam_data["sources"] is a dict keyed by source URL (see
+        # RAGEngine.extract_sources); normalize it to a list for storage/response.
+        sources_list = list(exam_data.get("sources", {}).values())
 
         # Save exam to database
         exam = Exam(
@@ -175,11 +189,11 @@ async def generate_exam(
             num_questions=request.num_questions,
             source_preference=request.source_preference,
             used_documents=document_ids,
-            used_sources=json.dumps(context.get('sources', [])),
+            used_sources=json.dumps(sources_list),
             custom_instructions=request.custom_instructions,
             llm_provider=request.llm_config.provider,
             llm_model=request.llm_config.model,
-            prompt_used=exam_data.get("prompt_used", "")
+            prompt_used=""
         )
 
         db.add(exam)
@@ -195,7 +209,7 @@ async def generate_exam(
                 question_type=question.get("type", request.question_type),
                 difficulty_level=question.get("difficulty", request.difficulty_level),
                 options=question.get("options"),
-                correct_answer=question.get("answer", ""),
+                correct_answer=question.get("correct_answer", ""),
                 explanation=question.get("explanation", ""),
                 key_concepts=question.get("concepts"),
                 source_type="document"
@@ -235,7 +249,7 @@ async def generate_exam(
                 }
                 for q in question_records
             ],
-            "sources": context.get("sources", []),
+            "sources": sources_list,
             "generation_duration_seconds": generation_duration,
             "status": "completed"
         }

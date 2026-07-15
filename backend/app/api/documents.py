@@ -67,7 +67,7 @@ async def upload_document(
         logger.info(f"Document created: {document.id} for user {user_id}")
 
         # Extract text based on file type
-        text = processor.extract_text(BytesIO(content), file_ext)
+        text = DocumentProcessor.extract_text(BytesIO(content), file_ext)
         if not text or not text.strip():
             document.processing_status = "error"
             document.error_message = "No text extracted from document"
@@ -78,7 +78,7 @@ async def upload_document(
             )
 
         # Clean text
-        cleaned_text = processor.clean_text(text)
+        cleaned_text = DocumentProcessor.clean_text(text)
 
         # Chunk text
         chunker = TextChunker(
@@ -105,14 +105,18 @@ async def upload_document(
         logger.info(f"Generated {len(embeddings)} embeddings for document {document.id}")
 
         # Upsert to Qdrant
-        qdrant = get_qdrant_service()
-        collection_name = f"documents_user_{user_id}"
-        
+        # NOTE: uses the shared "document_embeddings" collection (RAGEngine's
+        # default) with user_id stored in the payload, NOT a per-user
+        # collection, so that RAGEngine.retrieve_context() (used during exam
+        # generation) can actually find these vectors via its user_id filter.
+        qdrant = get_qdrant_service(settings.QDRANT_URL, settings.QDRANT_API_KEY)
+        collection_name = "document_embeddings"
+
         # Create collection if not exists
         try:
             qdrant.create_collection(
                 collection_name=collection_name,
-                vectors_size=embeddings[0].shape[0] if len(embeddings) > 0 else 384
+                vector_size=embeddings[0].shape[0] if len(embeddings) > 0 else 384
             )
         except Exception as e:
             logger.warning(f"Collection might already exist: {e}")
@@ -131,8 +135,10 @@ async def upload_document(
                     "document_id": str(document.id),
                     "user_id": user_id,
                     "chunk_index": idx,
+                    "chunk_text": chunk['text'],
                     "text_preview": chunk['text'][:100],
-                    "source_type": "document"
+                    "source_type": "user_document",
+                    "source_title": document.title or document.file_name
                 }
             })
 
@@ -281,8 +287,8 @@ async def delete_document(
             )
 
         # Delete from Qdrant
-        qdrant = get_qdrant_service()
-        collection_name = f"documents_user_{user_id}"
+        qdrant = get_qdrant_service(settings.QDRANT_URL, settings.QDRANT_API_KEY)
+        collection_name = "document_embeddings"
         try:
             qdrant.delete_points(collection_name, [str(chunk.qdrant_vector_id) for chunk in document.chunks])
         except Exception as e:

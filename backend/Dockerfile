@@ -1,44 +1,63 @@
+# syntax=docker/dockerfile:1
+
+# ============================================================
 # Stage 1: Builder
-FROM python:3.11-slim as builder
+# ============================================================
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies for building
-# Install system dependencies for building
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# System deps needed only to BUILD python packages (psycopg2, etc.)
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Use a volume for pip cache to persist downloads across builds
-# This line is a conceptual addition, actual Dockerfile won't directly manage host volumes.
-# The effective solution is to rely on Docker's build cache or external dependency caching.
+# --- Install PyTorch CPU-only build FIRST, and separately ---
+# This is the single biggest win: the default `pip install torch`
+# pulls the CUDA build (2-4 GB). This app only ever runs
+# embeddings on CPU (see embeddings.py), so we force the small
+# CPU-only wheel (~200 MB) from PyTorch's own CPU index.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir \
+    torch==2.1.2 --index-url https://download.pytorch.org/whl/cpu
 
-# Copy requirements and install Python dependencies
+# Copy requirements and install the rest of the Python dependencies.
+# Kept as a separate layer + cache mount so Docker only re-downloads
+# when requirements.txt actually changes.
 COPY requirements.txt .
-# Use a separate layer for pip install to leverage Docker layer caching
-RUN --mount=type=cache,target=/root/.cache/pip pip install --no-dev --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r requirements.txt
 
-# Stage 2: Final image
-FROM python:3.11-slim-buster
+# ============================================================
+# Stage 2: Final runtime image
+# ============================================================
+# IMPORTANT: same Debian base ("bookworm", via python:3.11-slim) as the
+# builder stage. The previous image mixed slim (bookworm) in the builder
+# with slim-buster (EOL, different glibc) in the final stage, which is an
+# unsafe combination for copying compiled C-extension wheels across.
+FROM python:3.11-slim AS final
 
 WORKDIR /app
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Runtime-only system deps
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only runtime dependencies from builder
+# Copy only the installed packages + alembic binary from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin/alembic /usr/local/bin/alembic
 
 # Copy application code
 COPY . .
 
-# Ensure alembic can find its config
 ENV PYTHONPATH=/app
 
 # Run migrations and start the server

@@ -10,3 +10,8 @@ venv/
 **/*.pyc
 **/*.log
 .env
+*.bak
+requirements-dev.txt
+tests/
+.pytest_cache/
+.mypy_cache/

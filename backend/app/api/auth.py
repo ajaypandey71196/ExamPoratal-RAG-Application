@@ -1,8 +1,10 @@
 """Authentication API endpoints."""
 
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.models import User
@@ -14,35 +16,34 @@ from app.utils.security import (
 router = APIRouter()
 
 
-class RegisterRequest:
-    """User registration request."""
-    def __init__(self, email: str, username: str, password: str, first_name: str = None, last_name: str = None):
-        self.email = email
-        self.username = username
-        self.password = password
-        self.first_name = first_name
-        self.last_name = last_name
+class RegisterRequest(BaseModel):
+    """User registration request body."""
+    email: str
+    username: str
+    password: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
 
 
-class LoginRequest:
-    """User login request."""
-    def __init__(self, email: str, password: str):
-        self.email = email
-        self.password = password
+class LoginRequest(BaseModel):
+    """User login request body."""
+    email: str
+    password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    """Refresh token request body."""
+    refresh_token: str
 
 
 @router.post("/register")
 async def register(
-    email: str,
-    username: str,
-    password: str,
-    first_name: str = None,
-    last_name: str = None,
+    request: RegisterRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """Register a new user."""
     # Check if user already exists
-    stmt = select(User).where((User.email == email) | (User.username == username))
+    stmt = select(User).where((User.email == request.email) | (User.username == request.username))
     result = await db.execute(stmt)
     if result.scalar_one_or_none():
         raise HTTPException(
@@ -52,11 +53,11 @@ async def register(
 
     # Create new user
     user = User(
-        email=email,
-        username=username,
-        password_hash=get_password_hash(password),
-        first_name=first_name,
-        last_name=last_name
+        email=request.email,
+        username=request.username,
+        password_hash=get_password_hash(request.password),
+        first_name=request.first_name,
+        last_name=request.last_name
     )
     db.add(user)
     await db.commit()
@@ -72,17 +73,16 @@ async def register(
 
 @router.post("/login")
 async def login(
-    email: str,
-    password: str,
+    request: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """Login user and return tokens."""
     # Find user
-    stmt = select(User).where(User.email == email)
+    stmt = select(User).where(User.email == request.email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(password, user.password_hash):
+    if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
@@ -107,9 +107,9 @@ async def login(
 
 
 @router.post("/refresh")
-async def refresh_token(refresh_token: str):
+async def refresh_token(request: RefreshTokenRequest):
     """Refresh access token."""
-    payload = decode_token(refresh_token)
+    payload = decode_token(request.refresh_token)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
