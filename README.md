@@ -10,7 +10,7 @@ cd backend
 pip install -r requirements.txt
 ```
 
-### 2. Environment Variables
+### 2. Environment   Variables
 Create `.env` file:
 ```
 DATABASE_URL=postgresql://rag_user:rag_password_dev@localhost:5432/rag_db
