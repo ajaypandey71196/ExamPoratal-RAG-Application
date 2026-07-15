@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Required for SonarCloud to get full blame history
 
       # 1. Gitleaks: Secret Scanning
       - name: Gitleaks Scan
@@ -18,12 +18,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. SonarQube: Code Quality
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v4
+      # 2. SonarCloud: Code Quality
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.organization=YOUR_ORGANIZATION_KEY
+            -Dsonar.projectKey=YOUR_PROJECT_KEY
 
       # 3. Trivy: Filesystem/Dependency Scan
       - name: Run Trivy vulnerability scanner
