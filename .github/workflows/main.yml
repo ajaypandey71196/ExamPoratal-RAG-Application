@@ -8,9 +8,9 @@ jobs:
   security-and-quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required for Sonar Cloud to get full blame history
+          fetch-depth: 0 # Required for SonarCloud to analyze commit history
 
       # 1. Gitleaks: Secret Scanning
       - name: Gitleaks Scan
@@ -26,8 +26,8 @@ jobs:
         with:
           args: >
             -Dsonar.host.url=https://sonarcloud.io
-            -Dsonar.organization=YOUR_ORGANIZATION_KEY
-            -Dsonar.projectKey=YOUR_PROJECT_KEY
+            -Dsonar.organization=${{ secrets.SONAR_ORG_KEY }}
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
 
       # 3. Trivy: Filesystem/Dependency Scan
       - name: Run Trivy vulnerability scanner
