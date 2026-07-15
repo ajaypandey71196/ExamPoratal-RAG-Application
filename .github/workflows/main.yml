@@ -1,4 +1,4 @@
-name: DevSecOps  CI Pipeline
+name: DevSecOps CI Pipeline
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required for SonarCloud to analyze commit history
+          fetch-depth: 0 
 
       # 1. Gitleaks: Secret Scanning
       - name: Gitleaks Scan
@@ -23,11 +23,9 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.host.url=https://sonarcloud.io
-            -Dsonar.organization=${{ secrets.SONAR_ORG_KEY }}
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORGANIZATION: ${{ secrets.SONAR_ORG_KEY }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_HOST_URL: https://sonarcloud.io
 
       # 3. Trivy: Filesystem/Dependency Scan
       - name: Run Trivy vulnerability scanner
