@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0 # Required for SonarCloud to get full blame history
+          fetch-depth: 0 # Required for Sonar Cloud to get full blame history
 
       # 1. Gitleaks: Secret Scanning
       - name: Gitleaks Scan
