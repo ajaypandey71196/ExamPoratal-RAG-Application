@@ -3,23 +3,26 @@ FROM node:18-alpine as builder
 
 WORKDIR /app
 
+# Copy dependency files
 COPY package.json package-lock.json* yarn.lock* ./
-#RUN npm ci --prefer-offline --no-audit
-# Use npm ci for clean install and better caching
-RUN --mount=type=cache,target=/root/.npm npm ci --prefer-offline --no-audit
+
+# If package-lock.json exists, use npm ci, otherwise use npm install
+RUN if [ -f package-lock.json ]; then \
+    npm ci --prefer-offline --no-audit; \
+    else \
+    npm install; \
+    fi
 
 # Copy source code and build
 COPY . .
 RUN npm run build
 
-# Stage 2: Serve the frontend with a lightweight web server
+# Stage 2: Serve the frontend
 FROM nginx:alpine as runner
 
-# Copy only the built assets from the builder stage
+# Copy built assets to Nginx html folder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Expose port 3000 (or 80 if Nginx default)
 EXPOSE 3000
 
-# Start Nginx
 CMD ["nginx", "-g", "daemon off;"]
