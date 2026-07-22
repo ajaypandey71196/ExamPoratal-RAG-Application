@@ -4,7 +4,7 @@
 
 ## Setup Instructions
 
-### 1. Install Dependencies
+### 1. Install    Dependencies
 ```bash
 cd backend
 pip install -r requirements.txt
